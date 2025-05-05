@@ -56,7 +56,7 @@ int main(int argc, char **argv) {
 
     thrust::device_vector<char> d_data(h_data.begin(), h_data.end());
 
-    std::cout << "\n=== Starting Indexing ===\n";
+    std::cout << "\n=== Starting  ===\n";
 
     auto start_time_indexing = std::chrono::high_resolution_clock::now();
 
@@ -74,8 +74,6 @@ int main(int argc, char **argv) {
     auto end_time_indexing = std::chrono::high_resolution_clock::now();
     auto time_indexing = std::chrono::duration_cast<std::chrono::milliseconds>(
             end_time_indexing - start_time_indexing).count();
-
-    std::cout << "Indexing time: " << time_indexing << " ms\n";
 
     std::cout << "\n=== Starting Identifier Compression ===\n";
     auto start_time_identifier = std::chrono::high_resolution_clock::now();
@@ -148,13 +146,13 @@ int main(int argc, char **argv) {
 
         process_identifiers<<<blocks, threads_per_block>>>(
                 d_buffer,
-                d_fields_indices_ptr,
-                num_records,
-                static_cast<int>(pid.segments.size()),
-                d_segment_types_ptr,
-                d_max_string_lengths_ptr,
-                d_string_segments,
-                d_numeric_segments
+                        d_fields_indices_ptr,
+                        num_records,
+                        static_cast<int>(pid.segments.size()),
+                        d_segment_types_ptr,
+                        d_max_string_lengths_ptr,
+                        d_string_segments,
+                        d_numeric_segments
         );
         CUDA_CHECK(cudaGetLastError());
         CUDA_CHECK(cudaDeviceSynchronize());
@@ -184,7 +182,7 @@ int main(int argc, char **argv) {
     auto end_time_identifier = std::chrono::high_resolution_clock::now();
     auto time_identifier = std::chrono::duration_cast<std::chrono::milliseconds>(
             end_time_identifier - start_time_identifier).count();
-    std::cout << "Identifier Compression time: " << time_identifier << " ms\n";
+
 
     /*************************************************************************
      * 9) Basecall Compression
@@ -215,7 +213,7 @@ int main(int argc, char **argv) {
     auto end_time_basecalls = std::chrono::high_resolution_clock::now();
     auto time_basecalls = std::chrono::duration_cast<std::chrono::milliseconds>(
             end_time_basecalls - start_time_basecalls).count();
-    std::cout << "Basecalls Compression time: " << time_basecalls << " ms\n";
+
 
     /*************************************************************************
      * 10) Quality Scores Compression
@@ -274,6 +272,7 @@ int main(int argc, char **argv) {
     auto end_time_quality_buildbook = std::chrono::high_resolution_clock::now();
     auto time_quality_buildbook = std::chrono::duration_cast<std::chrono::milliseconds>(
             end_time_quality_buildbook - start_time_quality_buildbook).count();
+    std::cout << "Build Huffman book time: " << time_quality_buildbook << " ms\n";
 
 
     auto start_time_quality_encode = std::chrono::high_resolution_clock::now();
@@ -294,9 +293,7 @@ int main(int argc, char **argv) {
             end_time_quality_encode - start_time_quality_encode).count();
     qualityScores_compressed_total += compressed_len_huff;
 
-    std::cout << "Quality Scores preprocess time: " << time_quality_preprocess << " ms\n";
-    std::cout << "Quality Scores Build Book time: " << time_quality_buildbook << " ms\n";
-    std::cout << "Quality Scores Encode time: " << time_quality_encode << " ms\n";
+
 
     /*************************************************************************
      * 11) Print out compression ratio and thrpughput
@@ -314,14 +311,43 @@ int main(int argc, char **argv) {
     std::cout << "Compression Ratio (Original / Compressed): " << compression_ratio << "\n";
 
     std::cout << "\n=== Throughput Metrics ===\n";
+    std::cout << "Indexing time: " << time_indexing << " ms\n";
+    std::cout << "Identifier Compression time: " << time_identifier << " ms\n";
+    std::cout << "Basecalls Compression time: " << time_basecalls << " ms\n";
 
-    double throughput_bytes_per_sec = static_cast<double>(original_data_total) * 1000.0 /
+    std::cout << "Quality Scores preprocess time: " << time_quality_preprocess << " ms\n";
+    std::cout << "Quality Scores Build Book time: " << time_quality_buildbook << " ms\n";
+    std::cout << "Quality Scores Encode time: " << time_quality_encode << " ms\n";
+
+    double throughput_bytes_per_sec = static_cast<double>(total_compressed_size) * 1000.0 /
                                       (time_indexing + time_identifier + time_basecalls + time_quality_preprocess +
                                        time_quality_encode);
     double throughput_MB_per_sec = throughput_bytes_per_sec / (1024.0 * 1024.0);
 
     std::cout << "Compression Throughput: "
               << throughput_MB_per_sec << " MB/sec)" << std::endl;
+
+
+    /*************************************************************************
+     * 11) (Optional) Copy Compressed Data Back to Host for Verification
+     *************************************************************************/
+    // Example: Copy compressed quality scores back to host for verification
+    /*
+    if (qualityMeta.total_scores > 0 && qualityMeta.d_compressed != nullptr) {
+        std::vector<char> h_compressed_quality(qualityMeta.total_scores);
+        CUDA_CHECK(cudaMemcpy(h_compressed_quality.data(), qualityMeta.d_compressed, qualityMeta.total_scores * sizeof(char), cudaMemcpyDeviceToHost));
+
+        // Print the first 50 quality scores as a simple verification
+        size_t printCount = std::min<size_t>(50, qualityMeta.total_scores);
+        std::cout << "\nFirst " << printCount << " quality scores of compressed data:\n";
+        for (size_t i = 0; i < printCount; i++) {
+            std::cout << h_compressed_quality[i];
+        }
+        std::cout << "\n";
+    } else {
+        std::cout << "\nNo quality scores to compress.\n";
+    }
+    */
 
     /*************************************************************************
      * 12) Cleanup compressed meta device memory
@@ -338,6 +364,38 @@ int main(int argc, char **argv) {
     }
 
     /*************************************************************************
+     * 13) Cleanup identifier segments back to host for verification (if needed)
+     *************************************************************************/
+    // e.g., copy original numeric arrays for debug
+    /*
+    std::vector<int*> numeric_segments_host(pid.num_numeric_segments, nullptr);
+    for (int i = 0; i < pid.num_numeric_segments; ++i) {
+        numeric_segments_host[i] = new int[num_records];
+        CUDA_CHECK(cudaMemcpy(numeric_segments_host[i],
+                              d_numeric_arrays[i],
+                              num_records * sizeof(int),
+                              cudaMemcpyDeviceToHost));
+    }
+
+    // e.g., copy original string arrays for debug
+    std::vector<char*> string_segments_host(pid.num_string_segments, nullptr);
+    {
+        int s_idx = 0;
+        for (size_t seg_idx = 0; seg_idx < pid.segment_types.size(); seg_idx++) {
+            if (pid.segment_types[seg_idx] == 0) {  // STRING
+                size_t max_len = pid.max_string_lengths[s_idx] + 1;
+                string_segments_host[s_idx] = new char[num_records * max_len];
+                CUDA_CHECK(cudaMemcpy(string_segments_host[s_idx],
+                                      d_string_arrays[s_idx],
+                                      num_records * max_len * sizeof(char),
+                                      cudaMemcpyDeviceToHost));
+                s_idx++;
+            }
+        }
+    }
+     */
+
+    /*************************************************************************
      * 14) Cleanup device memory
      *************************************************************************/
     CUDA_CHECK(cudaFree(d_buffer));
@@ -349,6 +407,16 @@ int main(int argc, char **argv) {
         CUDA_CHECK(cudaFree(d_string_arrays[i]));
     }
     CUDA_CHECK(cudaFree(d_string_segments));
+
+    // Cleanup host memory
+    /*
+    for (int i = 0; i < pid.num_numeric_segments; ++i) {
+        delete[] numeric_segments_host[i];
+    }
+    for (int i = 0; i < pid.num_string_segments; ++i) {
+        delete[] string_segments_host[i];
+    }
+     */
 
     std::cout << "\nDone.\n";
     return 0;

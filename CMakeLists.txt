@@ -204,6 +204,7 @@ cuda_add_executable(main
         src/gpulz.cu
         src/basecall_compress.cu
         src/quality_scores_process.cu
+        src/huffman_decode.cu
 )
 
 target_link_libraries(main
@@ -226,3 +227,4 @@ cuda_add_executable(main_basecall
         src/basecall_compress.cu
 )
 target_link_libraries(main_basecall ${CUDA_LIBRARIES})
+

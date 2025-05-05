@@ -3,28 +3,31 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 /**
  * @brief Metadata describing compressed quality scores.
  */
-struct QualityScoresCompressMeta
-{
-    char *d_compressed = nullptr;      // Contiguous array of quality scores in device memory
+struct QualityScoresCompressMeta {
+    unsigned char *d_compressed = nullptr;      // Contiguous array of quality scores in device memory
     size_t total_scores = 0;           // Total number of quality scores
+
 };
 
+
 /**
- * @brief Kernel function to calculate the lengths of quality score lines.
- *        quality_length[n] = (fields_indices[4n+4] - 1) - fields_indices[4n+3]
+ * @brief Calculate the lengths of each quality score line.
  *
  * @param d_fields_indices     Device array containing line start indices
  * @param d_quality_length     Output device array to store lengths of each quality score line
  * @param num_records          Number of FastQ records
+ * @param d_data_size          Total size of the data buffer in bytes
  */
 void calcQualityScoreLengthsFromFields(
         const int *d_fields_indices,
         int *d_quality_length,
-        int num_records
+        int num_records,
+        int d_data_size  // Total size of the data buffer
 );
 
 /**
@@ -33,7 +36,7 @@ void calcQualityScoreLengthsFromFields(
  *
  * @param d_quality_length     Device array containing lengths of quality score lines
  * @param num_records          Number of FastQ records
- * @param d_offset             Device array to store prefix sum offsets
+ * @param d_offset             Device array to store prefix sum offsets (size: num_records + 1)
  */
 void calcQualityScoreOffsets(
         const int *d_quality_length,
@@ -42,7 +45,7 @@ void calcQualityScoreOffsets(
 );
 
 /**
- * @brief Kernel to copy quality scores into a contiguous device array based on prefix offsets.
+ * @brief CUDA kernel to copy quality scores into a contiguous device array based on prefix offsets.
  *
  * @param d_data              Full FastQ data on device
  * @param d_fields_indices    Device array containing line start indices
@@ -69,8 +72,9 @@ __global__ void copyQualityScoresKernel(
  *
  * @param d_data              Full FastQ data on device
  * @param d_fields_indices    Device array containing line start indices
- * @param row_count           Total number of lines in FastQ file
+ * @param row_count           Total number of lines in FastQ file (should be multiple of 4)
  * @param num_records         Number of FastQ records
+ * @param d_data_size         Total size of the data buffer in bytes
  * @param outMeta             Output metadata for compressed quality scores
  */
 void qualityScoresCompress(
@@ -78,6 +82,7 @@ void qualityScoresCompress(
         const int *d_fields_indices,
         int row_count,
         int num_records,
+        int d_data_size,                // Total data size in bytes
         QualityScoresCompressMeta &outMeta
 );
 
